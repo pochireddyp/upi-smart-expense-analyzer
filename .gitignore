@@ -1,0 +1,110 @@
+# ==============================================================================
+# UPI Smart Expense Analyzer - Git Ignore
+# Protects private financial data, virtual environments, caches, and secrets
+# ==============================================================================
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Python Bytecode & Runtime Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & Linting Artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Local Secrets & Environment Configuration
+.env
+.env.*
+!.env.example
+secrets.toml
+.streamlit/secrets.toml
+
+# Private Financial Statements & User Uploads (Strictly Protected)
+*.csv
+*.pdf
+*.xlsx
+*.xls
+data/uploads/*
+!data/uploads/.gitkeep
+exports/*
+!exports/.gitkeep
+
+# Whitelist public synthetic sample files for testing/demo
+!sample_data/*.csv
+!sample_data/*.pdf
+!sample_data/.gitkeep
+
+# Personal SQLite Databases & Local State
+*.db
+*.db-journal
+*.db-wal
+*.sqlite
+*.sqlite3
+data/*.db
+data/*.sqlite*
+
+# Application Runtime Logs
+*.log
+logs/
+
+# IDE & OS Specific Artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+
+# Python virtual environment
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment variables and secrets
+.env
+.streamlit/secrets.toml
+
+# Private financial data
+uploads/
+*.db
+*.sqlite3
+
+# Editor and operating system files
+.vscode/
+.DS_Store
+exports/
