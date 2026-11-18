@@ -15,8 +15,15 @@ from database.db import get_connection, init_db
 from database.repositories import TransactionRepository
 from sample_data.generator import get_sample_transactions
 
-# Initialize local SQLite database and apply any pending migrations
-init_db()
+# Initialize local SQLite database and apply pending migrations once per server lifecycle
+@st.cache_resource
+def initialize_database() -> bool:
+    """Initialize local SQLite database and migrations once per server process."""
+    init_db()
+    return True
+
+
+initialize_database()
 
 # Configure the Streamlit page
 st.set_page_config(

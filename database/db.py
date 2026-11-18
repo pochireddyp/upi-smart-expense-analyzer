@@ -6,6 +6,7 @@ Ensures strict SQLite invariants:
 - Atomic transaction rollbacks.
 """
 
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,9 @@ from typing import Generator, List, Optional, Union
 # Default local database location
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "app.db"
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
+
+# Reentrant lock to serialize database initialization and migration execution across threads
+_DB_INIT_LOCK = threading.RLock()
 
 
 def get_connection(db_path: Optional[Union[Path, str]] = None) -> sqlite3.Connection:
@@ -65,54 +69,69 @@ def transaction_scope(conn: sqlite3.Connection) -> Generator[sqlite3.Connection,
 def run_migrations(conn: sqlite3.Connection) -> int:
     """Discover and apply all unapplied SQL migration scripts in order.
 
+    Thread-safe migration runner serialized via _DB_INIT_LOCK. Live migration
+    status is re-checked for each script before execution to ensure exactly-once
+    application.
+
     Args:
         conn: Open SQLite connection.
 
     Returns:
         int: Number of new migrations applied.
     """
-    # Create migration tracking table if not present
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS schema_migrations (
-            version INTEGER PRIMARY KEY,
-            name TEXT NOT NULL,
-            applied_at TEXT NOT NULL
-        );
-        """
-    )
-    conn.commit()
+    with _DB_INIT_LOCK:
+        # Create migration tracking table if not present
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                applied_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.commit()
 
-    # Query currently applied migration versions
-    cursor = conn.execute("SELECT version FROM schema_migrations ORDER BY version ASC;")
-    applied_versions = {row["version"] for row in cursor.fetchall()}
+        # Discover migration files (e.g. 001_initial_schema.sql)
+        migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
+        newly_applied = 0
 
-    # Discover migration files (e.g. 001_initial_schema.sql)
-    migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
-    newly_applied = 0
+        for m_file in migration_files:
+            # Extract version number prefix
+            try:
+                version_num = int(m_file.name.split("_")[0])
+            except (ValueError, IndexError):
+                continue
 
-    for m_file in migration_files:
-        # Extract version number prefix
-        try:
-            version_num = int(m_file.name.split("_")[0])
-        except (ValueError, IndexError):
-            continue
+            # Re-check live database state under lock to prevent race conditions
+            cursor = conn.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = ?;",
+                (version_num,),
+            )
+            if cursor.fetchone() is not None:
+                continue
 
-        if version_num not in applied_versions:
             sql_script = m_file.read_text(encoding="utf-8")
-            with transaction_scope(conn):
-                conn.executescript(sql_script)
-                conn.execute(
-                    "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?);",
-                    (version_num, m_file.name, datetime.now(timezone.utc).isoformat()),
-                )
+
+            # Note on executescript: In Python sqlite3, executescript() issues
+            # a COMMIT prior to executing the script and commits upon completion.
+            # We execute the migration DDL, then record the version in schema_migrations.
+            conn.executescript(sql_script)
+            conn.execute(
+                "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?);",
+                (version_num, m_file.name, datetime.now(timezone.utc).isoformat()),
+            )
+            conn.commit()
             newly_applied += 1
 
-    return newly_applied
+        return newly_applied
 
 
 def init_db(db_path: Optional[Union[Path, str]] = None) -> Path:
     """Initialize the database and ensure all migrations are up to date.
+
+    Thread-safe entrypoint protected by _DB_INIT_LOCK covering connection
+    creation, schema_migrations setup, version verification, and migration execution.
 
     Args:
         db_path: Optional path to SQLite file.
@@ -121,9 +140,10 @@ def init_db(db_path: Optional[Union[Path, str]] = None) -> Path:
         Path: Path to initialized SQLite database.
     """
     target = Path(db_path) if db_path is not None and str(db_path) != ":memory:" else DEFAULT_DB_PATH
-    conn = get_connection(db_path)
-    try:
-        run_migrations(conn)
-    finally:
-        conn.close()
+    with _DB_INIT_LOCK:
+        conn = get_connection(db_path)
+        try:
+            run_migrations(conn)
+        finally:
+            conn.close()
     return target

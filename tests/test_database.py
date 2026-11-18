@@ -4,6 +4,7 @@ Tests all database operations using in-memory SQLite (:memory:) to guarantee
 isolation and protect production/user data.
 """
 
+import concurrent.futures
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -12,7 +13,7 @@ import uuid
 
 import pytest
 
-from database.db import get_connection, run_migrations, transaction_scope
+from database.db import get_connection, init_db, run_migrations, transaction_scope
 from database.repositories import AccountRepository, StatementRepository, TransactionRepository
 from modules.models import Statement, Transaction
 from services.import_service import ImportService
@@ -40,6 +41,53 @@ class TestDatabasePragmasAndMigrations:
         # Already run in fixture; running again should apply 0
         newly_applied = run_migrations(db_conn)
         assert newly_applied == 0
+
+    def test_concurrent_init_db(self, tmp_path):
+        """Verify multiple concurrent threads calling init_db() on a fresh database succeed without error."""
+        db_file = tmp_path / "concurrent_app.db"
+
+        def worker(thread_idx: int):
+            return init_db(db_file)
+
+        # Execute 8 concurrent threads calling init_db simultaneously
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [executor.submit(worker, i) for i in range(8)]
+            results = [f.result() for f in concurrent.futures.as_completed(futures)]
+
+        assert len(results) == 8
+
+        # Verify migrations 001 and 002 were applied exactly once
+        conn = get_connection(db_file)
+        try:
+            rows = conn.execute(
+                "SELECT version, name FROM schema_migrations ORDER BY version ASC;"
+            ).fetchall()
+            assert len(rows) == 2
+            assert rows[0]["version"] == 1
+            assert rows[0]["name"] == "001_initial_schema.sql"
+            assert rows[1]["version"] == 2
+            assert rows[1]["name"] == "002_user_rules_and_overrides.sql"
+
+            # Verify tables exist
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
+            assert {"accounts", "statements", "categories", "transactions", "categorization_rules", "category_overrides_audit"}.issubset(tables)
+        finally:
+            conn.close()
+
+    def test_repeated_init_db_calls(self, tmp_path):
+        """Verify repeated sequential init_db calls on the same file succeed without error."""
+        db_file = tmp_path / "repeated_app.db"
+
+        for _ in range(5):
+            path = init_db(db_file)
+            assert path == db_file
+
+        conn = get_connection(db_file)
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM schema_migrations;").fetchone()[0]
+            assert count == 2
+        finally:
+            conn.close()
 
 
 class TestAccountRepository:
