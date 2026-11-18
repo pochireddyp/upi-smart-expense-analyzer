@@ -108,3 +108,10 @@ uploads/
 .vscode/
 .DS_Store
 exports/
+
+scratch/
+__pycache__/
+*.pyc
+# Never publish real bank statement files
+sample_data/*.csv
+sample_data/*.pdf
