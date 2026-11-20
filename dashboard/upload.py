@@ -91,30 +91,19 @@ def render_upload() -> None:
 
             # Handle PDF Processing
             elif file_name.lower().endswith(".pdf"):
-                if st.button("🔓 Extract & Parse PDF Transactions", type="primary", use_container_width=True):
-                    parse_result = parse_pdf_statement(file_bytes)
+                parse_result = parse_pdf_statement(file_bytes)
 
-                    if not parse_result.success:
-                        if parse_result.is_encrypted:
-                            st.error(f"🔒 **Password-Protected PDF:** {parse_result.error_message}")
-                        else:
-                            st.error(
-                                f"❌ **Failed to parse PDF statement:** {parse_result.error_message}\n\n"
-                                f"**Tips:**\n"
-                                f"• Ensure this is an original digital e-statement (not a scanned image or photo)."
-                            )
+                if not parse_result.success:
+                    if parse_result.is_encrypted:
+                        st.error("This PDF could not be read. Please upload an accessible PDF statement.")
                     else:
-                        st.session_state["latest_pdf_result"] = parse_result
-                        st.session_state["latest_pdf_filename"] = file_name
-
-                # If previously parsed successfully in session, display preview
-                if "latest_pdf_result" in st.session_state and st.session_state.get("latest_pdf_filename") == file_name:
-                    _display_parse_success(
-                        st.session_state["latest_pdf_result"],
-                        file_name,
-                        file_type="PDF",
-                        file_bytes=file_bytes,
-                    )
+                        st.error(
+                            f"❌ **Failed to parse PDF statement:** {parse_result.error_message}\n\n"
+                            f"**Tips:**\n"
+                            f"• Ensure this is an original digital e-statement (not a scanned image or photo)."
+                        )
+                else:
+                    _display_parse_success(parse_result, file_name, file_type="PDF", file_bytes=file_bytes)
 
     # 4. Previously Imported Statements in SQLite
     conn = get_connection()
