@@ -1,8 +1,7 @@
 """Statement Upload and Ingestion UI for UPI Smart Expense Analyzer.
 
-Handles both CSV and PDF file uploads, automatic schema detection, in-memory
-password decryption for locked PDFs, validation, previewing, and atomic SQLite
-database persistence with duplicate-import prevention.
+Handles both CSV and PDF file uploads, automatic schema detection, validation,
+previewing, and atomic SQLite database persistence with duplicate-import prevention.
 """
 
 from decimal import Decimal
@@ -92,31 +91,21 @@ def render_upload() -> None:
 
             # Handle PDF Processing
             elif file_name.lower().endswith(".pdf"):
-                st.markdown("#### 2. PDF Password (If Protected)")
-                pdf_password = st.text_input(
-                    "Statement Password",
-                    type="password",
-                    help="Many banks encrypt PDF statements with your DOB (DDMMYYYY) or Customer ID / PAN.",
-                    placeholder="Enter password if your PDF is locked",
-                )
-
                 if st.button("🔓 Extract & Parse PDF Transactions", type="primary", use_container_width=True):
-                    parse_result = parse_pdf_statement(file_bytes, password=pdf_password if pdf_password else None)
+                    parse_result = parse_pdf_statement(file_bytes)
 
                     if not parse_result.success:
                         if parse_result.is_encrypted:
-                            st.error(f"🔒 **Password Required / Incorrect:** {parse_result.error_message}")
+                            st.error(f"🔒 **Password-Protected PDF:** {parse_result.error_message}")
                         else:
                             st.error(
                                 f"❌ **Failed to parse PDF statement:** {parse_result.error_message}\n\n"
                                 f"**Tips:**\n"
-                                f"• Ensure this is an original digital e-statement (not a scanned image or photo).\n"
-                                f"• If password-protected, verify your DOB / Customer ID format."
+                                f"• Ensure this is an original digital e-statement (not a scanned image or photo)."
                             )
                     else:
                         st.session_state["latest_pdf_result"] = parse_result
                         st.session_state["latest_pdf_filename"] = file_name
-                        st.session_state["latest_pdf_password"] = pdf_password
 
                 # If previously parsed successfully in session, display preview
                 if "latest_pdf_result" in st.session_state and st.session_state.get("latest_pdf_filename") == file_name:
@@ -125,7 +114,6 @@ def render_upload() -> None:
                         file_name,
                         file_type="PDF",
                         file_bytes=file_bytes,
-                        password=st.session_state.get("latest_pdf_password"),
                     )
 
     # 4. Previously Imported Statements in SQLite
@@ -201,7 +189,6 @@ def render_upload() -> None:
             st.markdown(
                 """
                 * Digital vector PDFs downloaded from your bank's netbanking portal.
-                * Automatic in-memory password unlock (passwords are never saved or sent to external servers).
                 * Multi-page table extraction and column discovery.
                 * *Note:* Scanned photos/image-only PDFs are not supported.
                 """
